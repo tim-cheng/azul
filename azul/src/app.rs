@@ -724,8 +724,21 @@ fn render_single_window_content<T: Layout>(
 
     // TODO: Render all windows again, not just this one!
     // if should_relayout || should_rerender {
-        render_inner(window, &mut app_state.resources, Transaction::new(), config.background_color);
+        // render_inner(window, &mut app_state.resources, Transaction::new(), config.background_color);
     // }
+
+    use glium::glutin::ContextTrait;
+
+    use window::get_gl_context;
+    window.display.gl_window().window().show();
+    unsafe { window.display.gl_window().make_current().unwrap() };
+    let gl_context = get_gl_context(&window.display).unwrap();
+    // 0x0030c100 ???
+    // (255 * 70) / 100
+    gl_context.clear_color(1.0, 0.0, 0.0, 0.5);
+    gl_context.flush(); // Windows 8?
+    // gl_context.clear_depth(0.0);
+    window.display.swap_buffers().unwrap();
 
     Ok((frame_event_info.is_resize_event, false))
 }
@@ -1187,7 +1200,7 @@ fn render_inner<T: Layout>(
         gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
 
         // Check that the framebuffer is complete
-        assert_eq!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER), gl::FRAMEBUFFER_COMPLETE);
+        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
         // Invoke WebRender to render the frame - renders to the currently bound FB
         gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
@@ -1207,6 +1220,7 @@ fn render_inner<T: Layout>(
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
         window.display.gl_window().make_current().unwrap();
         let window_context = get_gl_context(&window.display).unwrap();
+        // Invoke WebRender to render the frame - renders to the currently bound FB
         draw_texture_to_screen(&*window_context, textures[0], framebuffer_size);
         window.display.swap_buffers().unwrap();
 

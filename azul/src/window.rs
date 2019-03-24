@@ -493,6 +493,8 @@ impl<'a, T: Layout> Window<T> {
 
         let is_transparent_background = background_color.a != 0;
 
+        println!("is transparent: {:?}", is_transparent_background);
+
         let mut window = GliumWindowBuilder::new()
             .with_title(options.state.title.clone())
             .with_maximized(options.state.is_maximized)
@@ -901,7 +903,8 @@ fn create_context_builder<'a>(
 // This exists because RendererOptions isn't Clone-able
 fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
 
-    use webrender::ProgramCache;
+    use webrender::RendererKind::*;
+    use webrender::api::ColorF;
 
     // pre-caching shaders means to compile all shaders on startup
     // this can take significant time and should be only used for testing the shaders
@@ -919,12 +922,12 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
         device_pixel_ratio: device_pixel_ratio,
         enable_subpixel_aa: true,
         enable_aa: true,
-        cached_programs: Some(ProgramCache::new(None)),
-        renderer_kind: if native {
-            RendererKind::Native
-        } else {
-            RendererKind::OSMesa
-        },
+        // Dithering has something to do with linear-gradient shaders.
+        // Seems to be only relevant for testing / CI though.
+        enable_dithering: false,
+        cached_programs: None,
+        clear_color: Some(ColorF::new(1.0, 1.0, 1.0, 1.0)),
+        renderer_kind: if native { Native } else { OSMesa },
         .. RendererOptions::default()
     }
 }
