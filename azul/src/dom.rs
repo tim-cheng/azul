@@ -810,18 +810,14 @@ impl<T> FromIterator<Dom<T>> for Dom<T> {
 impl<T> FromIterator<NodeData<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
 
+        use id_tree::{ConstVec, ROOT_NODE};
+
         // We have to use a "root" node, otherwise we run into problems if
         // the iterator executes 0 times (and therefore pushes 0 nodes)
 
         // "Root" node of this DOM
         let mut node_data = vec![NodeData::new(NodeType::Div)];
-        let mut node_layout = vec![Node {
-            parent: None,
-            previous_sibling: None,
-            next_sibling: None,
-            last_child: None,
-            first_child: None,
-        }];
+        let mut node_layout = ConstVec::init_single(ROOT_NODE);
 
         let mut idx = 0;
 
@@ -871,9 +867,9 @@ impl<T> FromIterator<NodeType<T>> for Dom<T> {
 impl<T> Arena<NodeData<T>> {
     /// TODO: promote to const fn once `const_vec_new` is stable
     fn init_with_node_data(node_data: NodeData<T>) -> Self {
-        use id_tree::ROOT_NODE;
+        use id_tree::{ROOT_NODE, ConstVec};
         Arena {
-            node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
+            node_layout: NodeHierarchy { internal: ConstVec::init_single(ROOT_NODE) },
             node_data: NodeDataContainer { internal: vec![node_data] },
         }
     }
@@ -900,12 +896,20 @@ impl<T> Dom<T> {
     /// Creates an empty DOM with space reserved for `cap` nodes
     #[inline]
     pub fn with_capacity(node_type: NodeType<T>, cap: usize) -> Self {
-        let mut arena = Arena::with_capacity(cap.saturating_add(1));
-        let root = arena.new_node(NodeData::new(node_type));
+        use id_tree::{ROOT_NODE_ID, ROOT_NODE, ConstVec};
+
+        let mut initial_vec = Vec::with_capacity(cap);
+        initial_vec.push(NodeData::new(node_type));
+
+        let arena = Arena {
+            node_layout: NodeHierarchy { internal: ConstVec::with_capacity(ROOT_NODE, cap.saturating_add(1)) },
+            node_data: NodeDataContainer { internal: initial_vec },
+        };
+
         Self {
             arena: arena,
-            root: root,
-            head: root,
+            root: ROOT_NODE_ID,
+            head: ROOT_NODE_ID,
         }
     }
 

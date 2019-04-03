@@ -105,7 +105,7 @@ impl Node {
     pub fn has_last_child(&self) -> bool { self.last_child.is_some() }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct Arena<T> {
     pub(crate) node_layout: NodeHierarchy,
     pub(crate) node_data: NodeDataContainer<T>,
@@ -114,18 +114,137 @@ pub struct Arena<T> {
 /// The hierarchy of nodes is stored separately from the actual node content in order
 /// to save on memory, since the hierarchy can be re-used across several DOM trees even
 /// if the content changes.
-#[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct NodeHierarchy {
-    pub(crate) internal: Vec<Node>,
+    pub(crate) internal: ConstVec<Node>,
+}
+
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum ConstVec<T> {
+    Single(T),
+    Many(Vec<T>),
+}
+
+impl<T: Clone> ConstVec<T> {
+
+    pub fn push(&mut self, data: T) {
+        let new_self = match self {
+            ConstVec::Single(s) => {
+                Some(ConstVec::Many(vec![s.clone(), data]))
+            },
+            ConstVec::Many(m) => {
+                m.push(data);
+                None
+            }
+        };
+        if let Some(s) = new_self {
+            *self = s;
+        }
+    }
+
+    pub fn append(&mut self, data: &mut Self) {
+        use self::ConstVec::*;
+        let new_self = match (&mut *self, data) {
+            (Single(s), Single(t)) => ConstVec::Many(vec![s.clone(), t.clone()]),
+            (Single(s), Many(t)) | (Many(t), Single(s))=> {
+                let mut new_vec = vec![s.clone()];
+                new_vec.append(t);
+                ConstVec::Many(new_vec)
+            },
+            (Many(s), Many(t)) => {
+                let mut new_vec = s.clone();
+                new_vec.append(t);
+                ConstVec::Many(new_vec)
+            }
+        };
+        *self = new_self;
+    }
+}
+
+impl<T> ConstVec<T> {
+
+    pub const fn init_single(data: T) -> Self {
+        ConstVec::Single(data)
+    }
+
+    pub const fn init_many(data: Vec<T>) -> Self {
+        ConstVec::Many(data)
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ConstVec::Single(_) => 1,
+            ConstVec::Many(m) => m.len(),
+        }
+    }
+
+    pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        match self {
+            ConstVec::Single(o) => o, // ignore the index
+            ConstVec::Many(m) => m.get_unchecked(index),
+        }
+    }
+
+    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        match self {
+            ConstVec::Single(o) => o, // ignore the index
+            ConstVec::Many(m) => m.get_unchecked_mut(index),
+        }
+    }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        match self {
+            ConstVec::Single(o) => if index == 1 { Some(o) } else { None },
+            ConstVec::Many(m) => m.get(index),
+        }
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
+        match self {
+            ConstVec::Single(o) => if index == 1 { Some(o) } else { None },
+            ConstVec::Many(m) => m.get_mut(index),
+        }
+    }
+
+    pub fn with_capacity(item: T, cap: usize) -> Self {
+        let mut vec = Vec::with_capacity(cap + 1);
+        vec.push(item);
+        ConstVec::Many(vec)
+    }
+}
+
+impl<T> Index<usize> for ConstVec<T> {
+    type Output = T;
+
+    #[inline]
+    fn index(&self, index: usize) -> &T {
+        match self {
+            ConstVec::Single(s) => s,
+            ConstVec::Many(m) => {
+                unsafe { m.get_unchecked(index) }
+            }
+        }
+    }
+}
+
+impl<T> IndexMut<usize> for ConstVec<T> {
+
+    #[inline]
+    fn index_mut(&mut self, index: usize) -> &mut T {
+        match self {
+            ConstVec::Single(s) => s,
+            ConstVec::Many(m) => {
+                unsafe { m.get_unchecked_mut(index) }
+            }
+        }
+    }
 }
 
 impl NodeHierarchy {
 
     #[inline]
-    pub const fn new(data: Vec<Node>) -> Self {
-        Self {
-            internal: data,
-        }
+    pub const fn new(data: ConstVec<Node>) -> Self {
+        Self { internal: data }
     }
 
     #[inline]
@@ -262,38 +381,6 @@ impl<T> IndexMut<NodeId> for NodeDataContainer<T> {
 }
 
 impl<T> Arena<T> {
-
-    #[inline]
-    pub fn new() -> Arena<T> {
-        // NOTE: This is a separate function, since Vec::new() is a const fn (so this function doesn't allocate)
-        Arena {
-            node_layout: NodeHierarchy { internal: Vec::new() },
-            node_data: NodeDataContainer { internal: Vec::<T>::new() },
-        }
-    }
-
-    #[inline]
-    pub fn with_capacity(cap: usize) -> Arena<T> {
-        Arena {
-            node_layout: NodeHierarchy { internal: Vec::with_capacity(cap) },
-            node_data: NodeDataContainer { internal: Vec::<T>::with_capacity(cap) },
-        }
-    }
-
-    /// Create a new node from its associated data.
-    #[inline]
-    pub(crate) fn new_node(&mut self, data: T) -> NodeId {
-        let next_index = self.node_layout.len();
-        self.node_layout.internal.push(Node {
-            parent: None,
-            first_child: None,
-            last_child: None,
-            previous_sibling: None,
-            next_sibling: None,
-        });
-        self.node_data.internal.push(data);
-        NodeId::new(next_index)
-    }
 
     // Returns how many nodes there are in the arena
     #[inline]
